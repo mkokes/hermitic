@@ -14,12 +14,14 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -125,18 +127,24 @@ class SessionListViewModelTest {
         val vm = SessionListViewModel(repository)
         val collector = launch(testDispatcher) { vm.uiState.collect() }
 
-        assertEquals(1, vm.uiState.value.sessions.size)
+        val initial = withTimeout(5_000) { vm.uiState.first { it.sessions.size == 1 } }
+        assertEquals("Alpha", initial.sessions.first().title)
 
         var createdId: String? = null
         vm.createSession("Beta") { createdId = it }
+        val afterCreate = withTimeout(5_000) { vm.uiState.first { it.sessions.size == 2 } }
         assertEquals("s2", createdId)
-        assertEquals(2, vm.uiState.value.sessions.size)
+        assertEquals(2, afterCreate.sessions.size)
 
         vm.renameSession("s2", "Beta Renamed")
-        assertEquals("Beta Renamed", vm.uiState.value.sessions.first { it.id == "s2" }.title)
+        val afterRename = withTimeout(5_000) {
+            vm.uiState.first { state -> state.sessions.any { it.id == "s2" && it.title == "Beta Renamed" } }
+        }
+        assertEquals("Beta Renamed", afterRename.sessions.first { it.id == "s2" }.title)
 
         vm.deleteSession("s1")
-        assertEquals(1, vm.uiState.value.sessions.size)
+        val afterDelete = withTimeout(5_000) { vm.uiState.first { it.sessions.size == 1 } }
+        assertEquals("s2", afterDelete.sessions.first().id)
         collector.cancel()
     }
 }
