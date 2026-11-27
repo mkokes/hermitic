@@ -1,0 +1,27 @@
+# Gradle & Android
+.gradle/
+build/
+*/build/
+local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+*.jks
+*.keystore
+!gradle/wrapper/gradle-wrapper.jar
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+*.ipr
+*.iws
+.cxx/
+captures/
+
+# OS & Logs
+.DS_Store
+Thumbs.db
+*.log
+hs_err_pid*
