@@ -1,11 +1,12 @@
 package com.martronics.hermitic.ui.navigation
 
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -17,10 +18,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.martronics.hermitic.feature.onboarding.ConnectionScreen
+import com.martronics.hermitic.feature.sessions.SessionListScreen
 import com.martronics.hermitic.feature.settings.SettingsScreen
 
 object HermiticRoutes {
@@ -28,6 +32,8 @@ object HermiticRoutes {
     const val SESSIONS = "sessions"
     const val CHAT = "chat/{sessionId}"
     const val SETTINGS = "settings"
+
+    fun chatRoute(sessionId: String): String = "chat/${Uri.encode(sessionId)}"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,13 +61,28 @@ fun HermiticNavHost(
         }
 
         composable(HermiticRoutes.SESSIONS) {
+            SessionListScreen(
+                onOpenSession = { sessionId ->
+                    navController.navigate(HermiticRoutes.chatRoute(sessionId))
+                },
+                onOpenSettings = {
+                    navController.navigate(HermiticRoutes.SETTINGS)
+                },
+            )
+        }
+
+        composable(
+            route = HermiticRoutes.CHAT,
+            arguments = listOf(navArgument("sessionId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val sessionId = Uri.decode(backStackEntry.arguments?.getString("sessionId").orEmpty())
             Scaffold(
                 topBar = {
                     TopAppBar(
-                        title = { Text("Hermes Sessions") },
-                        actions = {
-                            IconButton(onClick = { navController.navigate(HermiticRoutes.SETTINGS) }) {
-                                Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        title = { Text("Session $sessionId") },
+                        navigationIcon = {
+                            IconButton(onClick = { navController.popBackStack() }) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                             }
                         },
                     )
@@ -76,14 +97,8 @@ fun HermiticNavHost(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
-                        text = "Connected to Hermes",
-                        style = MaterialTheme.typography.titleLarge,
-                    )
-                    Text(
-                        text = "Session list screen coming in HERM-7.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp),
+                        text = "Chat stream UI coming in HERM-9",
+                        style = MaterialTheme.typography.titleMedium,
                     )
                 }
             }
