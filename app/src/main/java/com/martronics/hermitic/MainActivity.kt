@@ -65,7 +65,7 @@ class MainActivity : FragmentActivity() {
 
             HermiticTheme {
                 Box(modifier = Modifier.fillMaxSize()) {
-                    HermiticNavHost()
+                    HermiticNavHost(isConfigured = config.isConfigured)
                     if (isLocked) {
                         var errorMessage by remember { mutableStateOf<String?>(null) }
                         val triggerPrompt = {
