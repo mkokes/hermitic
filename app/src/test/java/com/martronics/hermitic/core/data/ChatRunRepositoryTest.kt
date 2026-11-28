@@ -28,6 +28,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.atomic.AtomicBoolean
 
 private class ChatRepoSecretStore : SecretStore {
     private val map = mutableMapOf<String, Any>()
@@ -146,7 +147,7 @@ class ChatRunRepositoryTest {
 
     @Test
     fun handles409ConflictOnStaleApprovalCleanly() = runBlocking {
-        @Volatile var approvalAttempted = false
+        val approvalAttempted = AtomicBoolean(false)
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
@@ -159,13 +160,13 @@ class ChatRunRepositoryTest {
                             .addHeader("Content-Type", "text/event-stream")
                             .setBody("event: approval.request\ndata: {\"request_id\":\"p1\",\"execution_generation\":4,\"tool\":\"terminal\"}\n\n")
                     path == "/v1/runs/run-50/approval" -> {
-                        approvalAttempted = true
+                        approvalAttempted.set(true)
                         MockResponse()
                             .setResponseCode(409)
                             .setBody("""{"code":"stale_generation","detail":"Already resolved"}""")
                     }
                     path == "/v1/runs/run-50" ->
-                        if (approvalAttempted) {
+                        if (approvalAttempted.get()) {
                             MockResponse()
                                 .setResponseCode(200)
                                 .setBody("""{"run_id":"run-50","status":"completed","output":"Resolved elsewhere"}""")
@@ -241,7 +242,7 @@ class ChatRunRepositoryTest {
 
     @Test
     fun stopActiveRunTransitionsToCancelled() = runBlocking {
-        @Volatile var stopRequested = false
+        val stopRequested = AtomicBoolean(false)
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
@@ -249,7 +250,7 @@ class ChatRunRepositoryTest {
                     path == "/v1/runs" ->
                         MockResponse().setResponseCode(202).setBody("""{"run_id":"run-stop","status":"started"}""")
                     path == "/v1/runs/run-stop/events" ->
-                        if (stopRequested) {
+                        if (stopRequested.get()) {
                             MockResponse()
                                 .setResponseCode(200)
                                 .addHeader("Content-Type", "text/event-stream")
@@ -261,11 +262,11 @@ class ChatRunRepositoryTest {
                                 .setBody("event: assistant.delta\ndata: {\"delta\":\"Working...\"}\n\n")
                         }
                     path == "/v1/runs/run-stop/stop" -> {
-                        stopRequested = true
+                        stopRequested.set(true)
                         MockResponse().setResponseCode(200).setBody("""{"status":"stopping"}""")
                     }
                     path == "/v1/runs/run-stop" ->
-                        if (stopRequested) {
+                        if (stopRequested.get()) {
                             MockResponse().setResponseCode(200).setBody("""{"run_id":"run-stop","status":"cancelled"}""")
                         } else {
                             MockResponse().setResponseCode(200).setBody("""{"run_id":"run-stop","status":"running"}""")
