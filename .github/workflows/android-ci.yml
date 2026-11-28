@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -23,11 +23,8 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug
+      - name: Run Checks (Lint + Unit Tests)
+        run: ./gradlew check
 
-      - name: Run Lint
-        run: ./gradlew lintDebug
-
-      - name: Run Unit Tests
-        run: ./gradlew testDebugUnitTest
+      - name: Build Debug & Release APKs (R8 Verified)
+        run: ./gradlew assembleDebug assembleRelease

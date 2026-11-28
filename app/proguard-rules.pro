@@ -15,3 +15,13 @@
 # OkHttp
 -dontwarn okhttp3.**
 -dontwarn okio.**
+
+# Google Tink (via security-crypto) compile-only ErrorProne annotations
+-dontwarn com.google.errorprone.annotations.**
+
+# Strip any accidental android.util.Log debug/verbose calls in release builds
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+}
