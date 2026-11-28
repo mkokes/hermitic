@@ -1,28 +1,13 @@
 package com.martronics.hermitic.ui.navigation
 
 import android.net.Uri
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.martronics.hermitic.feature.chat.ChatScreen
 import com.martronics.hermitic.feature.onboarding.ConnectionScreen
 import com.martronics.hermitic.feature.sessions.SessionListScreen
 import com.martronics.hermitic.feature.settings.SettingsScreen
@@ -36,7 +21,6 @@ object HermiticRoutes {
     fun chatRoute(sessionId: String): String = "chat/${Uri.encode(sessionId)}"
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HermiticNavHost(
     isConfigured: Boolean = false,
@@ -74,34 +58,10 @@ fun HermiticNavHost(
         composable(
             route = HermiticRoutes.CHAT,
             arguments = listOf(navArgument("sessionId") { type = NavType.StringType }),
-        ) { backStackEntry ->
-            val sessionId = Uri.decode(backStackEntry.arguments?.getString("sessionId").orEmpty())
-            Scaffold(
-                topBar = {
-                    TopAppBar(
-                        title = { Text("Session $sessionId") },
-                        navigationIcon = {
-                            IconButton(onClick = { navController.popBackStack() }) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                            }
-                        },
-                    )
-                },
-            ) { innerPadding ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                        .padding(24.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        text = "Chat stream UI coming in HERM-9",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                }
-            }
+        ) {
+            ChatScreen(
+                onBack = { navController.popBackStack() },
+            )
         }
 
         composable(HermiticRoutes.SETTINGS) {
