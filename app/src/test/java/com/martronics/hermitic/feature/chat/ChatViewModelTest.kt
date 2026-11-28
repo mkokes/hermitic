@@ -28,8 +28,10 @@ import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -125,29 +127,35 @@ class ChatViewModelTest {
 
     @Test
     fun streamsClarifyAndCompletesWithTranscript() = runBlocking {
-        // Initial transcript load
-        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"messages":[]}"""))
-        // createRun
-        server.enqueue(MockResponse().setResponseCode(202).setBody("""{"run_id":"run-1","status":"started"}"""))
-        // SSE stream with clarify.request
-        server.enqueue(
-            MockResponse()
-                .setResponseCode(200)
-                .addHeader("Content-Type", "text/event-stream")
-                .setBody(
-                    """
-                    event: tool.started
-                    data: {"tool":"clarify","preview":"Asking user"}
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                return when {
+                    path.contains("/messages") ->
+                        MockResponse().setResponseCode(200).setBody("""{"messages":[]}""")
+                    path == "/v1/runs" ->
+                        MockResponse().setResponseCode(202).setBody("""{"run_id":"run-1","status":"started"}""")
+                    path == "/v1/runs/run-1/events" ->
+                        MockResponse()
+                            .setResponseCode(200)
+                            .addHeader("Content-Type", "text/event-stream")
+                            .setBody(
+                                """
+                                event: tool.started
+                                data: {"tool":"clarify","preview":"Asking user"}
 
-                    event: clarify.request
-                    data: {"request_id":"cl-1","execution_generation":2,"question":"Which env?","choices":["Staging","Prod"]}
+                                event: clarify.request
+                                data: {"request_id":"cl-1","execution_generation":2,"question":"Which env?","choices":["Staging","Prod"]}
 
-                    """.trimIndent(),
-                )
-                .setSocketPolicy(SocketPolicy.KEEP_OPEN),
-        )
-        // submitClarify response
-        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"run_id":"run-1","status":"running"}"""))
+                                """.trimIndent() + "\n\n",
+                            )
+                            .setSocketPolicy(SocketPolicy.KEEP_OPEN)
+                    path == "/v1/runs/run-1/clarify" ->
+                        MockResponse().setResponseCode(200).setBody("""{"run_id":"run-1","status":"running"}""")
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
 
         val vm = ChatViewModel(
             savedStateHandle = SavedStateHandle(mapOf("sessionId" to "s1")),
