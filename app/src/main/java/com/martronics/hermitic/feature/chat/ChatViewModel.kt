@@ -1,6 +1,5 @@
 package com.martronics.hermitic.feature.chat
 
-import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -16,6 +15,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 import javax.inject.Inject
 
 data class ChatUiState(
@@ -34,7 +35,9 @@ class ChatViewModel @Inject constructor(
     private val chatRunRepository: ChatRunRepository,
 ) : ViewModel() {
 
-    private val sessionId: String = Uri.decode(savedStateHandle.get<String>("sessionId").orEmpty())
+    private val sessionId: String = savedStateHandle.get<String>("sessionId").orEmpty().let { raw ->
+        runCatching { URLDecoder.decode(raw, StandardCharsets.UTF_8.name()) }.getOrDefault(raw)
+    }
     private val draftText = MutableStateFlow("")
     private val transcriptMeta = MutableStateFlow(TranscriptMeta())
 
