@@ -181,4 +181,73 @@ class ChatRunRepositoryTest {
         assertNull(settled.pendingApproval)
         assertTrue(settled.errorMessage?.contains("stale_generation") == true)
     }
+
+    @Test
+    fun handlesStopAndIncompleteIterationBudget() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(202).setBody("""{"run_id":"run-budget","status":"started"}"""))
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "text/event-stream")
+                .setBody(
+                    """
+                    event: assistant.delta
+                    data: {"delta":"Found 3 files before limit."}
+
+                    event: run.completed
+                    data: {"output":"Found 3 files before limit.","error_code":"iteration_budget_exhausted"}
+
+                    """.trimIndent() + "\n\n",
+                ),
+        )
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"messages":[]}"""))
+
+        repository.sendPrompt("s1", "scan repo", idempotencyKey = "idem-budget")
+        val incomplete = withTimeout(5_000) {
+            repository.activeRun.first { it.phase == RunPhase.INCOMPLETE }
+        }
+        assertTrue(incomplete.isIncompleteBudgetExhausted)
+        assertEquals("Found 3 files before limit.", incomplete.streamedText)
+    }
+
+    @Test
+    fun surfacesCloudflareHtmlRedirectOnSseStream() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(202).setBody("""{"run_id":"run-cf","status":"started"}"""))
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(403)
+                .addHeader("Content-Type", "text/html")
+                .setBody("<html><title>Cloudflare Access</title></html>"),
+        )
+
+        repository.sendPrompt("s1", "hello", idempotencyKey = "idem-cf")
+        val failed = withTimeout(5_000) {
+            repository.activeRun.first { it.phase == RunPhase.FAILED }
+        }
+        assertTrue(failed.errorMessage?.contains("Cloudflare Access") == true)
+    }
+
+    @Test
+    fun stopActiveRunTransitionsToCancelled() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(202).setBody("""{"run_id":"run-stop","status":"started"}"""))
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "text/event-stream")
+                .setBody("event: assistant.delta\ndata: {\"delta\":\"Working...\"}\n\n")
+                .setSocketPolicy(SocketPolicy.KEEP_OPEN),
+        )
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"status":"stopping"}"""))
+
+        repository.sendPrompt("s1", "long task", idempotencyKey = "idem-stop")
+        withTimeout(5_000) {
+            repository.activeRun.first { it.phase == RunPhase.STREAMING && it.streamedText.isNotEmpty() }
+        }
+
+        repository.stopActiveRun()
+        val stopping = withTimeout(5_000) {
+            repository.activeRun.first { it.phase == RunPhase.STOPPING }
+        }
+        assertEquals("run-stop", stopping.runId)
+    }
 }
