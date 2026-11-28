@@ -17,8 +17,10 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -144,30 +146,40 @@ class ChatRunRepositoryTest {
 
     @Test
     fun handles409ConflictOnStaleApprovalCleanly() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(202).setBody("""{"run_id":"run-50","status":"started"}"""))
-        // Keep SSE waiting on approval without closing until test finishes
-        server.enqueue(
-            MockResponse()
-                .setResponseCode(200)
-                .addHeader("Content-Type", "text/event-stream")
-                .setBody("event: approval.request\ndata: {\"request_id\":\"p1\",\"execution_generation\":4,\"tool\":\"terminal\"}\n\n")
-                .setSocketPolicy(SocketPolicy.KEEP_OPEN),
-        )
-        server.enqueue(
-            MockResponse()
-                .setResponseCode(409)
-                .setBody("""{"code":"stale_generation","detail":"Already resolved"}"""),
-        )
-        server.enqueue(
-            MockResponse()
-                .setResponseCode(200)
-                .setBody("""{"run_id":"run-50","status":"completed","output":"Resolved elsewhere"}"""),
-        )
-        server.enqueue(
-            MockResponse()
-                .setResponseCode(200)
-                .setBody("""{"messages":[]}"""),
-        )
+        @Volatile var approvalAttempted = false
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                return when {
+                    path == "/v1/runs" ->
+                        MockResponse().setResponseCode(202).setBody("""{"run_id":"run-50","status":"started"}""")
+                    path == "/v1/runs/run-50/events" ->
+                        MockResponse()
+                            .setResponseCode(200)
+                            .addHeader("Content-Type", "text/event-stream")
+                            .setBody("event: approval.request\ndata: {\"request_id\":\"p1\",\"execution_generation\":4,\"tool\":\"terminal\"}\n\n")
+                    path == "/v1/runs/run-50/approval" -> {
+                        approvalAttempted = true
+                        MockResponse()
+                            .setResponseCode(409)
+                            .setBody("""{"code":"stale_generation","detail":"Already resolved"}""")
+                    }
+                    path == "/v1/runs/run-50" ->
+                        if (approvalAttempted) {
+                            MockResponse()
+                                .setResponseCode(200)
+                                .setBody("""{"run_id":"run-50","status":"completed","output":"Resolved elsewhere"}""")
+                        } else {
+                            MockResponse()
+                                .setResponseCode(200)
+                                .setBody("""{"run_id":"run-50","status":"waiting_for_approval","pending_controls":[{"kind":"approval","request_id":"p1","execution_generation":4,"tool":"terminal"}]}""")
+                        }
+                    path.contains("/messages") ->
+                        MockResponse().setResponseCode(200).setBody("""{"messages":[]}""")
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
 
         repository.sendPrompt("s1", "run command", idempotencyKey = "idem-50")
         withTimeout(5_000) {
@@ -229,25 +241,51 @@ class ChatRunRepositoryTest {
 
     @Test
     fun stopActiveRunTransitionsToCancelled() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(202).setBody("""{"run_id":"run-stop","status":"started"}"""))
-        server.enqueue(
-            MockResponse()
-                .setResponseCode(200)
-                .addHeader("Content-Type", "text/event-stream")
-                .setBody("event: assistant.delta\ndata: {\"delta\":\"Working...\"}\n\n")
-                .setSocketPolicy(SocketPolicy.KEEP_OPEN),
-        )
-        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"status":"stopping"}"""))
+        @Volatile var stopRequested = false
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                return when {
+                    path == "/v1/runs" ->
+                        MockResponse().setResponseCode(202).setBody("""{"run_id":"run-stop","status":"started"}""")
+                    path == "/v1/runs/run-stop/events" ->
+                        if (stopRequested) {
+                            MockResponse()
+                                .setResponseCode(200)
+                                .addHeader("Content-Type", "text/event-stream")
+                                .setBody("event: run.cancelled\ndata: {}\n\n")
+                        } else {
+                            MockResponse()
+                                .setResponseCode(200)
+                                .addHeader("Content-Type", "text/event-stream")
+                                .setBody("event: assistant.delta\ndata: {\"delta\":\"Working...\"}\n\n")
+                        }
+                    path == "/v1/runs/run-stop/stop" -> {
+                        stopRequested = true
+                        MockResponse().setResponseCode(200).setBody("""{"status":"stopping"}""")
+                    }
+                    path == "/v1/runs/run-stop" ->
+                        if (stopRequested) {
+                            MockResponse().setResponseCode(200).setBody("""{"run_id":"run-stop","status":"cancelled"}""")
+                        } else {
+                            MockResponse().setResponseCode(200).setBody("""{"run_id":"run-stop","status":"running"}""")
+                        }
+                    path.contains("/messages") ->
+                        MockResponse().setResponseCode(200).setBody("""{"messages":[]}""")
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
 
         repository.sendPrompt("s1", "long task", idempotencyKey = "idem-stop")
         withTimeout(5_000) {
-            repository.activeRun.first { it.phase == RunPhase.STREAMING && it.streamedText.isNotEmpty() }
+            repository.activeRun.first { it.streamedText.isNotEmpty() }
         }
 
         repository.stopActiveRun()
-        val stopping = withTimeout(5_000) {
-            repository.activeRun.first { it.phase == RunPhase.STOPPING }
+        val cancelled = withTimeout(5_000) {
+            repository.activeRun.first { it.phase == RunPhase.CANCELLED }
         }
-        assertEquals("run-stop", stopping.runId)
+        assertEquals("run-stop", cancelled.runId)
     }
 }
